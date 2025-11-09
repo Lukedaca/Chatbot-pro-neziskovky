@@ -4,17 +4,84 @@
 // (FINÁLNÍ OPRAVENÁ VERZE - POUZE WIDGET)
 // ===================================================================
 
-// Nastavení CSP hlaviček pro povolení externích zdrojů
-header("Content-Security-Policy: default-src 'self' https://cdnjs.cloudflare.com https://fonts.googleapis.com https://fonts.gstatic.com https://api.anthropic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://static.cloudflareinsights.com;");
+// Bezpečnostní hlavičky
+header("X-Content-Type-Options: nosniff");
+header("X-Frame-Options: DENY");
+header("X-XSS-Protection: 1; mode=block");
+header("Referrer-Policy: strict-origin-when-cross-origin");
+header("Content-Security-Policy: default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self' 'unsafe-inline'; connect-src 'self' https://api.anthropic.com;");
 
-// Spuštění session pro správu kontextu
+// Bezpečné spuštění session
 if (session_status() === PHP_SESSION_NONE) {
+    ini_set('session.cookie_httponly', 1);
+    ini_set('session.cookie_secure', 1);
+    ini_set('session.use_strict_mode', 1);
     session_start();
+
+    // Regenerace session ID pro prevenci session fixation
+    if (!isset($_SESSION['initiated'])) {
+        session_regenerate_id(true);
+        $_SESSION['initiated'] = true;
+    }
 }
 
 // ===================================================================
 // ČÁST 1: DEFINICE VŠECH PHP FUNKCÍ
 // ===================================================================
+
+// ========= BEZPEČNOSTNÍ FUNKCE =========
+
+function checkRateLimit() {
+    $max_requests = 60; // Max požadavků za hodinu
+    $time_window = 3600; // 1 hodina v sekundách
+
+    if (!isset($_SESSION['rate_limit'])) {
+        $_SESSION['rate_limit'] = [
+            'count' => 0,
+            'start_time' => time()
+        ];
+    }
+
+    $current_time = time();
+    $elapsed = $current_time - $_SESSION['rate_limit']['start_time'];
+
+    // Reset počítadla po uplynutí časového okna
+    if ($elapsed > $time_window) {
+        $_SESSION['rate_limit'] = [
+            'count' => 1,
+            'start_time' => $current_time
+        ];
+        return true;
+    }
+
+    // Kontrola limitu
+    if ($_SESSION['rate_limit']['count'] >= $max_requests) {
+        return false;
+    }
+
+    $_SESSION['rate_limit']['count']++;
+    return true;
+}
+
+function sanitizeInput($data) {
+    if (is_array($data)) {
+        return array_map('sanitizeInput', $data);
+    }
+    return htmlspecialchars(strip_tags(trim($data)), ENT_QUOTES, 'UTF-8');
+}
+
+function validateMessage($message) {
+    if (empty($message)) {
+        return false;
+    }
+
+    // Maximální délka zprávy (10000 znaků)
+    if (mb_strlen($message, 'UTF-8') > 10000) {
+        return false;
+    }
+
+    return true;
+}
 
 // ========= SAMOUČÍCÍ FUNKCE =========
 
@@ -37,14 +104,31 @@ function loadLearnedData() {
 
 function saveLearnedData($data) {
     $learnedFile = 'learned_data.json';
-    
-    if (count($data['interactions']) > 1000) {
-        $data['interactions'] = array_slice($data['interactions'], -1000);
+
+    try {
+        if (count($data['interactions']) > 1000) {
+            $data['interactions'] = array_slice($data['interactions'], -1000);
+        }
+
+        $data['last_updated'] = date('c');
+
+        $jsonData = json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+        if ($jsonData === false) {
+            error_log("Error encoding learned data to JSON: " . json_last_error_msg());
+            return false;
+        }
+
+        $result = file_put_contents($learnedFile, $jsonData, LOCK_EX);
+        if ($result === false) {
+            error_log("Error writing learned data to file: $learnedFile");
+            return false;
+        }
+
+        return true;
+    } catch (Exception $e) {
+        error_log("Exception in saveLearnedData: " . $e->getMessage());
+        return false;
     }
-    
-    $data['last_updated'] = date('c');
-    
-    file_put_contents($learnedFile, json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
 }
 
 function saveInteractionForLearning($question, $answer, $context) {
@@ -451,19 +535,21 @@ function detectLanguage($message) {
  * OPRAVA TC-02 (Jazyk) a TC-05 (Více otázek): Funkce upravena
  */
 function getSmartAnswer($question, $context, $history, $image = null, $sentiment = 'neutral', $userIntent = 'general', $language = 'cs') {
-    // ⬇️ ⬇️ ⬇️ ZDE VLOŽTE SVŮJ API KLÍČ ⬇️ ⬇️ ⬇️
-    $API_KEY = ""; // 👈 ZDE VLOŽTE SVŮJ API KLÍČ
-    // ⬆️ ⬆️ ⬆️ ZDE VLOŽTE SVŮJ API KLÍČ ⬆️ ⬆️ ⬆️
+    // API klíč - DŮLEŽITÉ: Nastavte svůj API klíč zde nebo použijte environment proměnnou
+    $API_KEY = getenv('CLAUDE_API_KEY') ?: ""; // Získá z ENV nebo prázdný string
+
+    // Pro lokální testování můžete zadat klíč přímo zde:
+    // $API_KEY = "sk-ant-your-api-key-here";
 
     $MODEL = "claude-haiku-4-5-20251001"; // Správný model
 
-    if ($API_KEY === "" || empty($API_KEY)) {
-        error_log("CHYBA: API klíč není nastaven!");
-        return "Omlouvám se, momentálně nemohu odpovědět. Administrátor musí nastavit API klíč.";
+    if (empty($API_KEY)) {
+        error_log("CHYBA: API klíč není nastaven! Nastavte environment proměnnou CLAUDE_API_KEY nebo zadejte klíč přímo v kódu.");
+        return "Omlouvám se, momentálně nemohu odpovědět. Administrátor musí nastavit API klíč. Pro nastavení použijte environment proměnnou CLAUDE_API_KEY.";
     }
 
-    if (strpos($API_KEY, "sk-ant-") === false) {
-        error_log("CHYBA: Neplatný formát API klíče: " . substr($API_KEY, 0, 10) . "...");
+    if (strpos($API_KEY, "sk-ant-") !== 0) {
+        error_log("CHYBA: Neplatný formát API klíče. Klíč musí začínat 'sk-ant-'");
         return "Chyba: Nebyl zadán platný API klíč pro Claude.";
     }
 
@@ -533,66 +619,96 @@ function getSmartAnswer($question, $context, $history, $image = null, $sentiment
     curl_setopt($ch, CURLOPT_POST, true);
     curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($postData));
     curl_setopt($ch, CURLOPT_TIMEOUT, 30);
+    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
+    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
+    curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2);
 
     $result = curl_exec($ch);
     $httpcode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
     $curlError = curl_error($ch);
     curl_close($ch);
 
-    error_log("API Call Debug: HTTP=$httpcode, cURLError: $curlError, Response(start): " . substr($result ?: '', 0, 500));
+    error_log("API Call Debug: HTTP=$httpcode, cURLError: $curlError, Response(start): " . substr($result ?: '', 0, 200));
 
-    if ($httpcode != 200 || $result === false) {
-        error_log("API Error: HTTP=$httpcode, cURLError: $curlError");
-        if ($httpcode === 401) return "Chyba ověření. Zkontrolujte API klíč.";
-        if ($httpcode === 404) return "API endpoint nebyl nalezen. Model '$MODEL' může být neplatný.";
-        if ($httpcode === 429) return "Překročen limit požadavků. Zkuste to za chvíli.";
-        return "Dočasně nedostupné. Zkuste to prosím za chvíli. [Chyba: $httpcode]";
+    if ($result === false) {
+        error_log("cURL Error: $curlError");
+        return "Omlouvám se, došlo k chybě připojení k AI službě. Zkuste to prosím znovu.";
+    }
+
+    if ($httpcode != 200) {
+        error_log("API Error: HTTP=$httpcode, Response: " . substr($result, 0, 500));
+        if ($httpcode === 401) return "Chyba ověření API klíče. Kontaktujte administrátora.";
+        if ($httpcode === 404) return "API služba není dostupná. Zkuste to prosím později.";
+        if ($httpcode === 429) return "Překročen limit požadavků API. Zkuste to za chvíli.";
+        if ($httpcode >= 500) return "Služba AI dočasně nedostupná. Zkuste to prosím za chvíli.";
+        return "Omlouvám se, nastala chyba při zpracování dotazu. Zkuste to prosím znovu.";
     }
 
     $data = json_decode($result, true);
+    if (json_last_error() !== JSON_ERROR_NONE) {
+        error_log("JSON decode error: " . json_last_error_msg());
+        return "Omlouvám se, nastala chyba při zpracování odpovědi.";
+    }
+
     if (isset($data['content'][0]['text'])) {
         return $data['content'][0]['text'];
     } else {
         error_log("Unexpected API response structure: " . substr($result, 0, 500));
-        return "Omlouvám se, na tento dotaz nemohu odpovědět (nečekaná struktura odpovědi).";
+        return "Omlouvám se, na tento dotaz nemohu odpovědět. Zkuste to prosím jinak.";
     }
 }
 
 function logInteraction($userMessage, $botResponse, $metadata) {
-    $userIntent = detectUserIntent($userMessage);
+    try {
+        $userIntent = detectUserIntent($userMessage);
 
-    $logEntry = [
-        'timestamp' => date('c'),
-        'user_ip' => $_SERVER['REMOTE_ADDR'] ?? 'unknown',
-        'user_agent' => $_SERVER['HTTP_USER_AGENT'] ?? 'unknown',
-        'user_intent' => $userIntent,
-        'message' => $userMessage,
-        'response' => $botResponse,
-        'response_time' => round($metadata['response_time'], 3),
-        'used_context' => $metadata['used_context'],
-        'used_learned_data' => $metadata['used_learned_data'],
-        'sentiment' => $metadata['sentiment'],
-        'image_uploaded' => $metadata['image_uploaded'],
-        'conversation_length' => $metadata['conversation_length'],
-        'message_length' => strlen($userMessage),
-        'response_length' => strlen($botResponse)
-    ];
+        $logEntry = [
+            'timestamp' => date('c'),
+            'user_ip' => $_SERVER['REMOTE_ADDR'] ?? 'unknown',
+            'user_agent' => $_SERVER['HTTP_USER_AGENT'] ?? 'unknown',
+            'user_intent' => $userIntent,
+            'message' => mb_substr($userMessage, 0, 500, 'UTF-8'), // Omezení délky pro log
+            'response' => mb_substr($botResponse, 0, 1000, 'UTF-8'), // Omezení délky pro log
+            'response_time' => round($metadata['response_time'], 3),
+            'used_context' => $metadata['used_context'],
+            'used_learned_data' => $metadata['used_learned_data'],
+            'sentiment' => $metadata['sentiment'],
+            'image_uploaded' => $metadata['image_uploaded'],
+            'conversation_length' => $metadata['conversation_length'],
+            'message_length' => strlen($userMessage),
+            'response_length' => strlen($botResponse)
+        ];
 
-    if (!file_exists('analytics')) {
-        mkdir('analytics', 0755, true);
+        if (!file_exists('analytics')) {
+            if (!mkdir('analytics', 0755, true)) {
+                error_log("Failed to create analytics directory");
+                return false;
+            }
+        }
+
+        $logFile = 'analytics/' . date('Y-m-d') . '_interactions.json';
+        $jsonLog = json_encode($logEntry, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+        if ($jsonLog === false) {
+            error_log("Failed to encode log entry: " . json_last_error_msg());
+            return false;
+        }
+
+        file_put_contents($logFile, $jsonLog . ",\n", FILE_APPEND | LOCK_EX);
+
+        $textLog = "[" . date('Y-m-d H:i:s') . "] [IP: " . ($_SERVER['REMOTE_ADDR'] ?? 'unknown') . "]\n";
+        $textLog .= "[Intent: $userIntent] [Sentiment: " . $metadata['sentiment'] . "] [Learned: " . ($metadata['used_learned_data'] ? 'yes' : 'no') . "]\n";
+        $textLog .= "Uživatel: " . mb_substr($userMessage, 0, 200, 'UTF-8') . "\n";
+        $textLog .= "Chatbot: " . mb_substr(str_replace("\n", " ", $botResponse), 0, 300, 'UTF-8') . "\n";
+        $textLog .= "Response time: " . round($metadata['response_time'], 3) . "s | Length: " . strlen($botResponse) . " chars\n";
+        $textLog .= "---\n";
+
+        file_put_contents('analytics/chat_log.txt', $textLog, FILE_APPEND | LOCK_EX);
+
+        return true;
+    } catch (Exception $e) {
+        error_log("Exception in logInteraction: " . $e->getMessage());
+        return false;
     }
-
-    $logFile = 'analytics/' . date('Y-m-d') . '_interactions.json';
-    file_put_contents($logFile, json_encode($logEntry, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE) . ",\n", FILE_APPEND | LOCK_EX);
-
-    $textLog = "[" . date('Y-m-d H:i:s') . "] [IP: " . ($_SERVER['REMOTE_ADDR'] ?? 'unknown') . "]\n";
-    $textLog .= "[Intent: $userIntent] [Sentiment: " . $metadata['sentiment'] . "] [Learned: " . ($metadata['used_learned_data'] ? 'yes' : 'no') . "]\n";
-    $textLog .= "Uživatel: " . $userMessage . "\n";
-    $textLog .= "Chatbot: " . str_replace("\n", " ", $botResponse) . "\n";
-    $textLog .= "Response time: " . round($metadata['response_time'], 3) . "s | Length: " . strlen($botResponse) . " chars\n";
-    $textLog .= "---\n";
-
-    file_put_contents('analytics/chat_log.txt', $textLog, FILE_APPEND | LOCK_EX);
 }
 
 
@@ -601,6 +717,17 @@ function logInteraction($userMessage, $botResponse, $metadata) {
 // ===================================================================
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // Kontrola rate limitu
+    if (!checkRateLimit()) {
+        http_response_code(429);
+        header('Content-Type: application/json');
+        echo json_encode([
+            'error' => 'Příliš mnoho požadavků. Zkuste to za chvíli.',
+            'reply' => 'Omlouvám se, ale překročil jste limit požadavků. Prosím počkejte chvíli a zkuste to znovu.'
+        ], JSON_UNESCAPED_UNICODE);
+        exit();
+    }
+
     // Načtení dat z externího JSON souboru
     if (file_exists('knowledge_base.json')) {
         $knowledgeData = json_decode(file_get_contents('knowledge_base.json'), true);
@@ -616,14 +743,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $learnedData = loadLearnedData();
     $request_body = file_get_contents('php://input');
     $data = json_decode($request_body, true);
+
+    // Validace JSON
+    if (json_last_error() !== JSON_ERROR_NONE) {
+        http_response_code(400);
+        header('Content-Type: application/json');
+        echo json_encode(['error' => 'Neplatný formát dat'], JSON_UNESCAPED_UNICODE);
+        exit();
+    }
+
     error_log("Received data: " . print_r($data, true));
 
     $userMessage = $data['message'] ?? '';
     $userMessageLower = strtolower($userMessage);
     $conversationHistory = $data['history'] ?? [];
     $image = $data['image'] ?? null;
+
+    // Validace zprávy
+    if (!validateMessage($userMessage) && empty($image)) {
+        http_response_code(400);
+        header('Content-Type: application/json');
+        echo json_encode([
+            'error' => 'Neplatná zpráva',
+            'reply' => 'Omlouvám se, ale vaše zpráva je příliš dlouhá nebo prázdná.'
+        ], JSON_UNESCAPED_UNICODE);
+        exit();
+    }
+
+    // Sanitizace vstupu (pouze pro zobrazení, ne pro zpracování AI)
+    $userMessageSafe = sanitizeInput($userMessage);
     $reply = null;
-    $suggestions = ["Vysvětli neuronové sítě", "Jaké máte produkty?", "Co všechno umíš?"];
+    $suggestions = [];
     $trimmedMessage = trim($userMessageLower);
 
     if (!isset($_SESSION['chat_context'])) {

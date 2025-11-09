@@ -1,0 +1,178 @@
+{
+  "articles": [
+    {
+      "title": "Úvod do umělé inteligence pro neziskové organizace",
+      "perex": "Umělá inteligence (AI) není jen pro velké korporace. Neziskové organizace mohou využít AI k automatizaci procesů, lepšímu fundraisingu a efektivnější komunikaci s dárci. Objevte, jak AI může transformovat vaši organizaci.",
+      "url": "/clanky/uvod-do-ai-pro-neziskovky"
+    },
+    {
+      "title": "Jak AI pomáhá při fundraisingu",
+      "perex": "AI algoritmy dokážou analyzovat data od dárců, predikovat jejich chování a personalizovat komunikaci. Organizace využívající AI v fundraisingu zaznamenaly nárůst darů až o 30%. Naučte se, jak na to.",
+      "url": "/clanky/ai-fundraising"
+    },
+    {
+      "title": "Automatizace administrativy pomocí AI",
+      "perex": "Administrativní úkoly zabírají neziskovkám až 40% času. AI chatboti, automatické zpracování dokumentů a inteligentní kalendáře mohou tento čas snížit na minimum a zaměstnanci se mohou věnovat důležitější práci.",
+      "url": "/clanky/automatizace-administrativy"
+    },
+    {
+      "title": "Etické využívání AI v neziskovém sektoru",
+      "perex": "S velkou mocí přichází velká odpovědnost. Článek o etických aspektech využívání AI, ochraně osobních údajů, transparentnosti algoritmů a zajištění férovosti při rozhodování pomocí AI.",
+      "url": "/clanky/eticke-vyuzivani-ai"
+    },
+    {
+      "title": "AI nástroje zdarma pro neziskové organizace",
+      "perex": "Seznam bezplatných nebo zlevněných AI nástrojů dostupných pro neziskové organizace: od ChatGPT přes Google Workspace až po specializované fundraisingové platformy s AI funkcemi.",
+      "url": "/clanky/ai-nastroje-zdarma"
+    },
+    {
+      "title": "Případová studie: AI v boji proti chudobě",
+      "perex": "Jak organizace XYZ využila AI k identifikaci rodin v nouzi, optimalizaci distribuce potravinové pomoci a zvýšení efektivity o 45%. Konkrétní příklad implementace AI v praxi.",
+      "url": "/clanky/pripadova-studie-chudoba"
+    },
+    {
+      "title": "Prediktivní analýza pro neziskové organizace",
+      "perex": "AI dokáže předpovídat trendy v darování, identifikovat potenciální velké dárce a optimalizovat kampaně. Naučte se základy prediktivní analýzy a jak ji aplikovat ve vaší organizaci.",
+      "url": "/clanky/prediktivni-analyza"
+    },
+    {
+      "title": "Chatboti pro neziskové organizace: Kompletní průvodce",
+      "perex": "Chatboti mohou odpovídat na dotazy 24/7, pomáhat dobrovolníkům a automatizovat základní komunikaci. Průvodce implementací chatbota krok za krokem, včetně nákladů a nejlepších praktik.",
+      "url": "/clanky/chatboti-pruvodce"
+    },
+    {
+      "title": "AI a personalizace dárcovské komunikace",
+      "perex": "Každý dárce je jedinečný. AI umožňuje personalizovat e-maily, děkovné dopisy a kampaně na základě historie darování, zájmů a chování. Výsledek? Vyšší míra otevření e-mailů a více darů.",
+      "url": "/clanky/personalizace-komunikace"
+    },
+    {
+      "title": "Začínáme s AI: První kroky pro neziskové organizace",
+      "perex": "Kompletní startovací balíček pro organizace, které chtějí začít s AI. Od posouzení potřeb, přes výběr nástrojů až po školení týmu. Praktický návod krok za krokem.",
+      "url": "/clanky/zaciname-s-ai"
+    }
+  ],
+  "glossary": [
+    {
+      "term": "Umělá inteligence (AI)",
+      "definition": "Technologie umožňující počítačům provádět úkoly, které běžně vyžadují lidskou inteligenci, jako je rozpoznávání obrazu, zpracování přirozeného jazyka nebo predikce."
+    },
+    {
+      "term": "Machine Learning (Strojové učení)",
+      "definition": "Podoblast AI, kde se algoritmy učí z dat bez explicitního naprogramování. Čím více dat, tím lepší výsledky. Využívá se například pro predikci chování dárců."
+    },
+    {
+      "term": "Natural Language Processing (NLP)",
+      "definition": "Technologie umožňující počítačům porozumět, interpretovat a generovat lidský jazyk. Základní technologie chatbotů a asistentů jako je tento."
+    },
+    {
+      "term": "Chatbot",
+      "definition": "Softwarová aplikace schopná konverzace s lidmi přes text nebo hlas. Chatboti v neziskovkách odpovídají na dotazy, pomáhají dobrovolníkům a automatizují komunikaci."
+    },
+    {
+      "term": "Prediktivní analýza",
+      "definition": "Využití historických dat k předpovídání budoucích událostí. V neziskovkách se používá pro predikci darů, identifikaci rizikových dárců nebo optimalizaci kampaní."
+    },
+    {
+      "term": "Big Data",
+      "definition": "Rozsáhlé datové soubory, které jsou příliš velké nebo složité na zpracování tradičními metodami. AI dokáže z big data extrahovat cenné poznatky pro neziskové organizace."
+    },
+    {
+      "term": "Deep Learning (Hluboké učení)",
+      "definition": "Pokročilá forma strojového učení používající neuronové sítě s mnoha vrstvami. Využívá se například pro rozpoznávání obrázků nebo zpracování komplexních dat."
+    },
+    {
+      "term": "Sentiment analýza",
+      "definition": "AI technika analyzující text k určení emočního tónu (pozitivní, negativní, neutrální). Pomáhá neziskovkám porozumět náladě dárců a reakcím na kampaně."
+    },
+    {
+      "term": "Automatizace",
+      "definition": "Použití technologie k provádění úkolů s minimálním lidským zásahem. AI automatizace šetří neziskovkám čas a peníze na rutinních úkolech."
+    },
+    {
+      "term": "API (Application Programming Interface)",
+      "definition": "Rozhraní umožňující různým softwarovým aplikacím komunikovat mezi sebou. Díky API mohou neziskové organizace propojit AI nástroje s existujícími systémy."
+    },
+    {
+      "term": "Cloud Computing",
+      "definition": "Poskytování výpočetních služeb přes internet. Většina AI nástrojů běží v cloudu, což znamená, že neziskové organizace nepotřebují drahé servery."
+    },
+    {
+      "term": "Data Mining",
+      "definition": "Proces objevování vzorců a poznatků ve velkých datových souborech. Neziskové organizace využívají data mining k lepšímu pochopení svých dárců a příjemců pomoci."
+    },
+    {
+      "term": "Neural Network (Neuronová síť)",
+      "definition": "Výpočetní systém inspirovaný biologickými neuronovými sítěmi v mozku. Základní stavební kámen mnoha moderních AI aplikací."
+    },
+    {
+      "term": "Personalizace",
+      "definition": "Přizpůsobení obsahu, komunikace nebo služeb individuálním uživatelům na základě jejich dat a chování. AI umožňuje personalizaci ve velkém měřítku."
+    },
+    {
+      "term": "RPA (Robotic Process Automation)",
+      "definition": "Automatizace opakujících se procesů pomocí softwarových robotů. V neziskovkách se používá například pro zpracování faktur nebo aktualizaci databází."
+    }
+  ],
+  "products": [
+    {
+      "title": "AI Konzultant pro neziskové organizace",
+      "use_cases": "Personalizované poradenství při implementaci AI do vaší organizace. Analýza potřeb, výběr nástrojů, školení týmu a průběžná podpora. Ideální pro začínající organizace.",
+      "features": [
+        "Úvodní audit organizace",
+        "Doporučení AI nástrojů na míru",
+        "Školení zaměstnanců",
+        "3měsíční podpora po implementaci"
+      ]
+    },
+    {
+      "title": "Fundraising AI Platform",
+      "use_cases": "Komplexní platforma pro optimalizaci fundraisingu pomocí AI. Predikce chování dárců, personalizace kampaní, automatické segmentace a reporting v reálném čase.",
+      "features": [
+        "Predikce darů a churn rate",
+        "Automatická segmentace dárců",
+        "Personalizované e-mailové kampaně",
+        "AI-powered analytika"
+      ]
+    },
+    {
+      "title": "Chatbot Pro pro neziskové organizace",
+      "use_cases": "Inteligentní chatbot postavený na technologii Claude AI. Odpovídá na dotazy 24/7, pomáhá dobrovolníkům, shromažďuje zpětnou vazbu a integruje se s vašimi systémy.",
+      "features": [
+        "Vícejazyčná podpora",
+        "Integrace s CRM a databázemi",
+        "Analýza sentimentu",
+        "Samoučící systém"
+      ]
+    },
+    {
+      "title": "Data Analytics Suite",
+      "use_cases": "Pokročilá analytická platforma s AI pro hloubkovou analýzu dat. Prediktivní modely, vizualizace dat, automatické reporty a doporučení pro rozhodování.",
+      "features": [
+        "Prediktivní analýza",
+        "Interaktivní dashboardy",
+        "Automatické reporty",
+        "Integrace s Excel a Google Sheets"
+      ]
+    },
+    {
+      "title": "Volunteer Management AI",
+      "use_cases": "AI systém pro správu dobrovolníků. Automatické párování dobrovolníků s úkoly, plánování směn, komunikace a hodnocení výkonu. Šetří koordinátorům hodiny práce.",
+      "features": [
+        "Inteligentní matchmaking",
+        "Automatické plánování",
+        "Komunikační nástroje",
+        "Sledování dopadů"
+      ]
+    },
+    {
+      "title": "Content Generator Pro",
+      "use_cases": "AI nástroj pro generování obsahu pro sociální sítě, newsletter, webové stránky a tiskové zprávy. Pomáhá malým organizacím bez marketingového týmu.",
+      "features": [
+        "Generování textů dle tónu",
+        "Návrhy obrázků",
+        "SEO optimalizace",
+        "Plánování publikování"
+      ]
+    }
+  ]
+}
