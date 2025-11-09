@@ -479,6 +479,13 @@ function getSmartAnswer($question, $context, $history, $image = null, $sentiment
     if ($sentiment === 'positive') $tone = "přátelský a nadšený";
     elseif ($sentiment === 'negative') $tone = "empatický a chápavý";
 
+    // TC-02 FIX: Detekce požadavku na specifickou délku odpovědi
+    $lengthRequirement = "";
+    if (preg_match('/(\d+)\s*(znak|znaky|znaků|character|characters)/i', $question, $matches)) {
+        $requestedLength = intval($matches[1]);
+        $lengthRequirement = "**KRITICKÉ: Uživatel požaduje odpověď přesně v $requestedLength znacích. Toto je NEJVYŠŠÍ priorita!**\n";
+    }
+
     $prompt = "Jsi AI asistent pro web AI4NGO (AI pro neziskové organizace).\n\n" .
               "KONTEXT KONVERZACE:\n" .
               "- Nálada uživatele: $sentiment (použij $tone tón)\n" .
@@ -486,12 +493,14 @@ function getSmartAnswer($question, $context, $history, $image = null, $sentiment
               "- Hloubka konverzace: " . count($history) . " zpráv\n" .
               "- Zaměření: neziskové organizace a AI technologie\n\n" .
 
+              $lengthRequirement . // TC-02 FIX
+
               "PRAVIDLA ODPOVÍDÁNÍ:\n" .
               "0. **ABSOLUTNĚ KRITICKÉ: Odpověz POUZE v jazyce '$language'**. Nikdy nepřekládej do jiného jazyka.\n" .
               "1. POKUD ZPRÁVA OBSAHUJE VÍCE OTÁZEK, ODPOVĚZ NA VŠECHNY (můžeš použít odrážky nebo číslovaný seznam).\n" .
-              "2. Odpovídej STRUČNĚ (maximálně 2-3 věty, výjimečně 4 pro složitá vysvětlení)\n" .
+              "2. Odpovídej STRUČNĚ (maximálně 2-3 věty, výjimečně 4 pro složitá vysvětlení), POKUD není specificky požadováno jinak.\n" .
               "3. Použij poskytnutý kontext z webu AI4NGO pro relevantní odpovědi\n" .
-              "4. Pokud odpověď vychází z článku, přidej odkaz ve formátu: 'Více v článku: [Název](URL)'\n" .
+              "4. TC-03 FIX: Pokud odpověď vychází z článku nebo uživatel žádá odkaz, VŽDY přidej klikatelný odkaz ve formátu: 'Více: [Název](URL)' nebo 'Registrace: [Zde](https://ai4ngo.org/registrace)'\n" .
               "5. Pro technické otázky o AI používej srozumitelné analogie\n" .
               "6. Pokud nevíš, raději přiznej neznalost než hádej\n" .
               "7. U negativního sentimentu buď obzvlášť empatický\n" .
@@ -514,9 +523,10 @@ function getSmartAnswer($question, $context, $history, $image = null, $sentiment
 
     $contentParts[] = ["type" => "text", "text" => $prompt];
 
+    // TC-05 FIX: Zvýšení max_tokens pro lepší podporu EN a delších odpovědí
     $postData = [
         "model" => $MODEL,
-        "max_tokens" => 1024,
+        "max_tokens" => 2048, // TC-05 FIX: Zvýšeno z 1024 na 2048
         "messages" => [
             ["role" => 'user', "content" => $contentParts]
         ]
@@ -532,21 +542,42 @@ function getSmartAnswer($question, $context, $history, $image = null, $sentiment
     ]);
     curl_setopt($ch, CURLOPT_POST, true);
     curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($postData));
-    curl_setopt($ch, CURLOPT_TIMEOUT, 30);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 45); // TC-05 FIX: Zvýšeno z 30 na 45 sekund
+    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
 
     $result = curl_exec($ch);
     $httpcode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
     $curlError = curl_error($ch);
     curl_close($ch);
 
-    error_log("API Call Debug: HTTP=$httpcode, cURLError: $curlError, Response(start): " . substr($result ?: '', 0, 500));
+    error_log("API Call Debug: HTTP=$httpcode, cURLError: $curlError, Language: $language, Response(start): " . substr($result ?: '', 0, 200));
 
-    if ($httpcode != 200 || $result === false) {
-        error_log("API Error: HTTP=$httpcode, cURLError: $curlError");
-        if ($httpcode === 401) return "Chyba ověření. Zkontrolujte API klíč.";
-        if ($httpcode === 404) return "API endpoint nebyl nalezen. Model '$MODEL' může být neplatný.";
-        if ($httpcode === 429) return "Překročen limit požadavků. Zkuste to za chvíli.";
-        return "Dočasně nedostupné. Zkuste to prosím za chvíli. [Chyba: $httpcode]";
+    // TC-05 FIX: Lepší error handling pro různé HTTP kódy
+    if ($result === false) {
+        error_log("cURL Error: $curlError");
+        return $language === 'en'
+            ? "Sorry, there was an error connecting to the AI service. Please try again."
+            : "Omlouvám se, došlo k chybě připojení k AI službě. Zkuste to prosím znovu.";
+    }
+
+    if ($httpcode != 200) {
+        error_log("API Error: HTTP=$httpcode, Response: " . substr($result, 0, 500));
+        if ($httpcode === 401) {
+            return $language === 'en' ? "Authentication error. Please contact the administrator." : "Chyba ověření. Kontaktujte administrátora.";
+        }
+        if ($httpcode === 404) {
+            return $language === 'en' ? "API service not found. Please try again later." : "API služba nebyla nalezena. Zkuste to prosím později.";
+        }
+        if ($httpcode === 429) {
+            return $language === 'en' ? "Rate limit exceeded. Please try again in a moment." : "Překročen limit požadavků. Zkuste to za chvíli.";
+        }
+        if ($httpcode >= 500 && $httpcode < 600) {
+            return $language === 'en' ? "AI service temporarily unavailable. Please try again later." : "Služba AI dočasně nedostupná. Zkuste to prosím později.";
+        }
+        // TC-05 FIX: Specifická zpráva pro 529 a ostatní chyby
+        return $language === 'en'
+            ? "Temporary service issue (Error: $httpcode). Please try again."
+            : "Dočasný problém se službou (Chyba: $httpcode). Zkuste to prosím znovu.";
     }
 
     $data = json_decode($result, true);
@@ -626,6 +657,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $suggestions = ["Vysvětli neuronové sítě", "Jaké máte produkty?", "Co všechno umíš?"];
     $trimmedMessage = trim($userMessageLower);
 
+    // TC-01 FIX: Validace délky zprávy - dlouhé texty nerozpoznávat jako greeting
+    $isLongMessage = mb_strlen($userMessage, 'UTF-8') > 100;
+
     if (!isset($_SESSION['chat_context'])) {
         $_SESSION['chat_context'] = [
             'user_interests' => [], 'asked_questions' => [], 'preferred_language' => 'cs',
@@ -646,7 +680,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $_SESSION['chat_context']['user_intent'] = $userIntent;
 
     // KROK 1: PEVNĚ DANÁ PRAVIDLA
-    if (in_array($trimmedMessage, ['ahoj', 'dobrý den', 'čau', 'zdravím', 'cus'])) {
+    // TC-01 FIX: Pouze krátké zprávy (< 100 znaků) mohou být greeting
+    if (!$isLongMessage && in_array($trimmedMessage, ['ahoj', 'dobrý den', 'čau', 'zdravím', 'cus', 'hello', 'hi', 'hey'])) {
         $time = date('H');
         $greeting = ($time < 12) ? "Dobré ráno" : (($time < 18) ? "Dobré odpoledne" : "Dobrý večer");
         $reply = "$greeting! Jsem AI asistent AI4NGO. Pomůžu vám s AI technologiemi pro neziskové organizace. Na co se chcete zeptat?";
@@ -667,15 +702,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($reply === null) {
         switch ($userIntent) {
             case 'greeting':
-                $time = date('H');
-                // Používáme proměnnou $language, která byla nastavena dříve
-                if ($language === 'en') {
-                    $greeting = ($time < 12) ? "Good morning" : (($time < 18) ? "Good afternoon" : "Good evening");
-                    $reply = "$greeting! I'm the AI assistant for AI4NGO. How can I help you today regarding AI for non-profits?";
-                    // Suggestions se generují až na konci
-                } else {
-                    $greeting = ($time < 12) ? "Dobré ráno" : (($time < 18) ? "Dobré odpoledne" : "Dobrý večer");
-                    $reply = "$greeting! Jsem AI asistent AI4NGO. Jak vám dnes mohu pomoci ohledně AI pro neziskové organizace?";
+                // TC-01 FIX: Pouze krátké zprávy mohou být greeting
+                if (!$isLongMessage) {
+                    $time = date('H');
+                    // Používáme proměnnou $language, která byla nastavena dříve
+                    if ($language === 'en') {
+                        $greeting = ($time < 12) ? "Good morning" : (($time < 18) ? "Good afternoon" : "Good evening");
+                        $reply = "$greeting! I'm the AI assistant for AI4NGO. How can I help you today regarding AI for non-profits?";
+                        // Suggestions se generují až na konci
+                    } else {
+                        $greeting = ($time < 12) ? "Dobré ráno" : (($time < 18) ? "Dobré odpoledne" : "Dobrý večer");
+                        $reply = "$greeting! Jsem AI asistent AI4NGO. Jak vám dnes mohu pomoci ohledně AI pro neziskové organizace?";
+                    }
                 }
                 break;
             case 'farewell':
@@ -1234,24 +1272,47 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         });
 
         // Voice recognition
+        // TC-09 FIX: Vylepšené hlasové ovládání pro iOS
         if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
             const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-            recognition = new SpeechRecognition();
-            recognition.lang = 'cs-CZ';
-            recognition.continuous = false;
+            try {
+                recognition = new SpeechRecognition();
+                recognition.lang = 'cs-CZ';
+                recognition.continuous = false;
+                recognition.interimResults = false;
+                recognition.maxAlternatives = 1;
 
-            recognition.onresult = (event) => {
-                const transcript = event.results[0][0].transcript;
-                userInput.value = transcript;
-                isRecording = false;
-                voiceBtn.classList.remove('active');
-                resetInactivityTimer();
-            };
+                recognition.onresult = (event) => {
+                    const transcript = event.results[0][0].transcript;
+                    userInput.value = transcript;
+                    isRecording = false;
+                    voiceBtn.classList.remove('active');
+                    resetInactivityTimer();
+                };
 
-            recognition.onerror = () => {
-                isRecording = false;
-                voiceBtn.classList.remove('active');
-            };
+                recognition.onerror = (event) => {
+                    // TC-09 FIX: Detailnější error handling
+                    console.error('Speech recognition error:', event.error);
+                    isRecording = false;
+                    voiceBtn.classList.remove('active');
+
+                    if (event.error === 'not-allowed') {
+                        alert('Povolte přístup k mikrofonu v nastavení prohlížeče.');
+                    } else if (event.error === 'no-speech') {
+                        alert('Nebyla zaznamená žádná řeč. Zkuste to znovu.');
+                    } else if (event.error === 'network') {
+                        alert('Problém se sítí. Zkontrolujte připojení k internetu.');
+                    }
+                };
+
+                recognition.onend = () => {
+                    isRecording = false;
+                    voiceBtn.classList.remove('active');
+                };
+            } catch (error) {
+                console.error('Error initializing speech recognition:', error);
+                voiceBtn.style.display = 'none';
+            }
         } else {
             voiceBtn.style.display = 'none';
         }
@@ -1263,13 +1324,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
             if (isRecording) {
-                recognition.stop();
+                try {
+                    recognition.stop();
+                } catch (error) {
+                    console.error('Error stopping recognition:', error);
+                }
                 isRecording = false;
                 voiceBtn.classList.remove('active');
             } else {
-                recognition.start();
-                isRecording = true;
-                voiceBtn.classList.add('active');
+                try {
+                    // TC-09 FIX: iOS Safari vyžaduje user interaction před startem
+                    recognition.start();
+                    isRecording = true;
+                    voiceBtn.classList.add('active');
+                } catch (error) {
+                    console.error('Error starting recognition:', error);
+                    alert('Nepodařilo se spustit hlasové ovládání. Zkuste to prosím znovu.');
+                    isRecording = false;
+                    voiceBtn.classList.remove('active');
+                }
             }
             resetInactivityTimer();
         });
@@ -1283,13 +1356,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         imageUpload.addEventListener('change', (e) => {
             const file = e.target.files[0];
             if (file) {
+                // TC-07 FIX: Validace obrázku před nahráním
+                const maxSize = 5 * 1024 * 1024; // 5MB
+                const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
+
+                if (!allowedTypes.includes(file.type)) {
+                    alert('Nepodporovaný formát obrázku. Povolené formáty: JPG, PNG, GIF, WebP');
+                    return;
+                }
+
+                if (file.size > maxSize) {
+                    alert('Obrázek je příliš velký. Maximální velikost je 5MB.');
+                    return;
+                }
+
                 const reader = new FileReader();
                 reader.onload = (event) => {
-                    uploadedImage = event.target.result.split(',')[1];
-                    imageBtn.classList.add('active');
-                    if (userInput.value.trim() === '') {
-                        userInput.value = 'Analyzuj tento obrázek';
+                    try {
+                        uploadedImage = event.target.result.split(',')[1];
+                        imageBtn.classList.add('active');
+                        if (userInput.value.trim() === '') {
+                            userInput.value = 'Analyzuj tento obrázek';
+                        }
+                    } catch (error) {
+                        console.error('Error processing image:', error);
+                        alert('Chyba při zpracování obrázku. Zkuste jiný soubor.');
+                        uploadedImage = null;
+                        imageBtn.classList.remove('active');
                     }
+                };
+                reader.onerror = () => {
+                    alert('Chyba při čtení souboru. Zkuste to prosím znovu.');
+                    uploadedImage = null;
+                    imageBtn.classList.remove('active');
                 };
                 reader.readAsDataURL(file);
             }
@@ -1297,6 +1396,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         });
 
         // Text-to-speech
+        // TC-08 FIX: Oprava infinite loop - přidáno zastavení řeči
         speakerBtn.addEventListener('click', () => {
             if (!lastBotMessage) {
                 alert('Zatím není žádná odpověď k přečtení.');
@@ -1304,8 +1404,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
             if ('speechSynthesis' in window) {
+                // TC-08 FIX: Pokud už řeč běží, zastav ji
+                if (window.speechSynthesis.speaking) {
+                    window.speechSynthesis.cancel();
+                    speakerBtn.classList.remove('active');
+                    return;
+                }
+
                 const utterance = new SpeechSynthesisUtterance(lastBotMessage);
-                utterance.lang = 'cs-CZ';
+
+                // TC-06 FIX: Detekce jazyka z kontextu konverzace
+                const isEnglish = /^[a-zA-Z0-9\s\p{P}]*$/u.test(lastBotMessage) &&
+                                  /\b(the|is|are|what|how|can|you|your|this|that)\b/i.test(lastBotMessage);
+                utterance.lang = isEnglish ? 'en-US' : 'cs-CZ';
                 utterance.rate = 0.9;
 
                 utterance.onstart = () => {
@@ -1313,6 +1424,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 };
                 utterance.onend = () => {
                     speakerBtn.classList.remove('active');
+                };
+                utterance.onerror = () => {
+                    // TC-08 FIX: Ošetření chyby
+                    speakerBtn.classList.remove('active');
+                    window.speechSynthesis.cancel();
                 };
 
                 window.speechSynthesis.speak(utterance);
