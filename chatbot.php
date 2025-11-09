@@ -450,7 +450,7 @@ function detectLanguage($message) {
 /**
  * OPRAVA TC-02 (Jazyk) a TC-05 (Více otázek): Funkce upravena
  */
-function getSmartAnswer($question, $context, $history, $image = null, $sentiment = 'neutral', $userIntent = 'general', $language = 'cs') {
+function getSmartAnswer($question, $context, $history, $image = null, $sentiment = 'neutral', $userIntent = 'general', $language = 'cs', $extendedTokens = false) {
     // ⬇️ ⬇️ ⬇️ ZDE VLOŽTE SVŮJ API KLÍČ ⬇️ ⬇️ ⬇️
     $API_KEY = ""; // 👈 ZDE VLOŽTE SVŮJ API KLÍČ
     // ⬆️ ⬆️ ⬆️ ZDE VLOŽTE SVŮJ API KLÍČ ⬆️ ⬆️ ⬆️
@@ -469,6 +469,9 @@ function getSmartAnswer($question, $context, $history, $image = null, $sentiment
 
     $apiUrl = "https://api.anthropic.com/v1/messages";
 
+    // TC-01 FIX: Adjust max_tokens for longer inputs
+    $maxTokens = $extendedTokens ? 2048 : 1024;
+
     $historyString = "";
     foreach($history as $entry) {
         $role = ($entry['role'] === 'user') ? "Uživatel" : "Asistent";
@@ -478,6 +481,13 @@ function getSmartAnswer($question, $context, $history, $image = null, $sentiment
     $tone = "neutrální";
     if ($sentiment === 'positive') $tone = "přátelský a nadšený";
     elseif ($sentiment === 'negative') $tone = "empatický a chápavý";
+
+    // TC-02 FIX: Detect character limit requests
+    $charLimitInstruction = "";
+    if (preg_match('/(\d+)\s*(znak[uůy]|character|char)/i', $question, $matches)) {
+        $requestedLimit = $matches[1];
+        $charLimitInstruction = "\n\n**KRITICKÉ: Uživatel požaduje odpověď v PŘESNĚ $requestedLimit znacích. DODRŽTE TENTO LIMIT!**";
+    }
 
     $prompt = "Jsi AI asistent pro web AI4NGO (AI pro neziskové organizace).\n\n" .
               "KONTEXT KONVERZACE:\n" .
@@ -491,32 +501,56 @@ function getSmartAnswer($question, $context, $history, $image = null, $sentiment
               "1. POKUD ZPRÁVA OBSAHUJE VÍCE OTÁZEK, ODPOVĚZ NA VŠECHNY (můžeš použít odrážky nebo číslovaný seznam).\n" .
               "2. Odpovídej STRUČNĚ (maximálně 2-3 věty, výjimečně 4 pro složitá vysvětlení)\n" .
               "3. Použij poskytnutý kontext z webu AI4NGO pro relevantní odpovědi\n" .
-              "4. Pokud odpověď vychází z článku, přidej odkaz ve formátu: 'Více v článku: [Název](URL)'\n" .
-              "5. Pro technické otázky o AI používej srozumitelné analogie\n" .
-              "6. Pokud nevíš, raději přiznej neznalost než hádej\n" .
-              "7. U negativního sentimentu buď obzvlášť empatický\n" .
-              "8. Můžeš se inspirovat naučenými odpověďmi z předchozích konverzací\n\n" .
+              "4. **TC-03 FIX: DŮLEŽITÉ - Pokud odpověď vychází z článku nebo odkazuješ na URL, VŽDY použij formát: [Název](URL) pro klikatelný odkaz**\n" .
+              "5. Pokud uživatel žádá odkaz na registraci nebo konkrétní stránku, VŽDY poskytni klikatelný odkaz ve formátu [text](URL)\n" .
+              "6. Pro technické otázky o AI používej srozumitelné analogie\n" .
+              "7. Pokud nevíš, raději přiznej neznalost než hádej\n" .
+              "8. U negativního sentimentu buď obzvlášť empatický\n" .
+              "9. Můžeš se inspirovat naučenými odpověďmi z předchozích konverzací\n\n" .
 
               "HISTORIE KONVERZACE:\n" . $historyString . "\n" .
               "KONTEXT Z WEBU AI4NGO:\n--- KONTEXT ---\n" . $context . "--- KONEC KONTEXTU ---\n\n" .
               "AKTUÁLNÍ OTÁZKA UŽIVATELE:\n" . $question . "\n\n" .
+              $charLimitInstruction . "\n" .
               "Tvoje odpověď (**POVINNĚ v jazyce '$language'**):";
 
     $contentParts = [];
 
+    // TC-07 FIX: Improved image handling with validation
     if ($image) {
+        // Detect image type from base64 data
+        $imageType = "image/jpeg"; // default
+        $imageData = $image;
+
+        // Try to detect actual image type
+        if (strlen($imageData) > 0) {
+            $header = substr(base64_decode($imageData), 0, 12);
+            if (strpos($header, 'PNG') !== false) {
+                $imageType = "image/png";
+            } elseif (strpos($header, 'GIF') !== false) {
+                $imageType = "image/gif";
+            } elseif (strpos($header, 'WEBP') !== false) {
+                $imageType = "image/webp";
+            }
+        }
+
         $contentParts[] = [
             "type" => "image",
-            "source" => ["type" => "base64", "media_type" => "image/jpeg", "data" => $image]
+            "source" => ["type" => "base64", "media_type" => $imageType, "data" => $imageData]
         ];
-        $prompt = "Uživatel nahrál obrázek. " . $prompt;
+
+        if ($language === 'en') {
+            $prompt = "User uploaded an image. " . $prompt;
+        } else {
+            $prompt = "Uživatel nahrál obrázek. " . $prompt;
+        }
     }
 
     $contentParts[] = ["type" => "text", "text" => $prompt];
 
     $postData = [
         "model" => $MODEL,
-        "max_tokens" => 1024,
+        "max_tokens" => $maxTokens,
         "messages" => [
             ["role" => 'user', "content" => $contentParts]
         ]
@@ -532,7 +566,9 @@ function getSmartAnswer($question, $context, $history, $image = null, $sentiment
     ]);
     curl_setopt($ch, CURLOPT_POST, true);
     curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($postData));
-    curl_setopt($ch, CURLOPT_TIMEOUT, 30);
+    // TC-05 FIX: Increase timeout to prevent 529 errors for complex queries
+    curl_setopt($ch, CURLOPT_TIMEOUT, 60);
+    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
 
     $result = curl_exec($ch);
     $httpcode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
@@ -542,11 +578,24 @@ function getSmartAnswer($question, $context, $history, $image = null, $sentiment
     error_log("API Call Debug: HTTP=$httpcode, cURLError: $curlError, Response(start): " . substr($result ?: '', 0, 500));
 
     if ($httpcode != 200 || $result === false) {
-        error_log("API Error: HTTP=$httpcode, cURLError: $curlError");
-        if ($httpcode === 401) return "Chyba ověření. Zkontrolujte API klíč.";
-        if ($httpcode === 404) return "API endpoint nebyl nalezen. Model '$MODEL' může být neplatný.";
-        if ($httpcode === 429) return "Překročen limit požadavků. Zkuste to za chvíli.";
-        return "Dočasně nedostupné. Zkuste to prosím za chvíli. [Chyba: $httpcode]";
+        error_log("API Error: HTTP=$httpcode, cURLError: $curlError, Language: $language");
+
+        // TC-05 FIX: Better error handling for different HTTP codes
+        if ($httpcode === 401) {
+            return $language === 'en' ? "Authentication error. Please check API key." : "Chyba ověření. Zkontrolujte API klíč.";
+        }
+        if ($httpcode === 404) {
+            return $language === 'en' ? "API endpoint not found. Model '$MODEL' may be invalid." : "API endpoint nebyl nalezen. Model '$MODEL' může být neplatný.";
+        }
+        if ($httpcode === 429) {
+            return $language === 'en' ? "Rate limit exceeded. Please try again in a moment." : "Překročen limit požadavků. Zkuste to za chvíli.";
+        }
+        if ($httpcode === 529 || $httpcode === 0) {
+            // 529 is service overloaded, 0 is timeout
+            return $language === 'en' ? "Service temporarily unavailable. Please try again in a moment." : "Služba je dočasně nedostupná. Zkuste to prosím za chvíli.";
+        }
+
+        return $language === 'en' ? "Temporarily unavailable. Please try again later. [Error: $httpcode]" : "Dočasně nedostupné. Zkuste to prosím za chvíli. [Chyba: $httpcode]";
     }
 
     $data = json_decode($result, true);
@@ -626,13 +675,49 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $suggestions = ["Vysvětli neuronové sítě", "Jaké máte produkty?", "Co všechno umíš?"];
     $trimmedMessage = trim($userMessageLower);
 
+    // TC-01 FIX: Validate message length to prevent chat reset on long inputs
+    $messageLength = mb_strlen($userMessage, 'UTF-8');
+    if ($messageLength > 2000) {
+        $reply = "Omlouvám se, ale váš dotaz je příliš dlouhý (" . $messageLength . " znaků). Prosím zkraťte jej na maximálně 2000 znaků nebo rozdělte na více kratších dotazů.";
+        $suggestions = ["Zkrátit dotaz", "Rozdělit na části", "Pomoc s formulací"];
+        $response = ['reply' => $reply, 'suggestions' => $suggestions];
+        header('Content-Type: application/json');
+        echo json_encode($response, JSON_UNESCAPED_UNICODE);
+        exit();
+    } elseif ($messageLength > 1000) {
+        // For inputs between 1000-2000 chars, increase max_tokens
+        $useExtendedTokens = true;
+    }
+
     if (!isset($_SESSION['chat_context'])) {
         $_SESSION['chat_context'] = [
             'user_interests' => [], 'asked_questions' => [], 'preferred_language' => 'cs',
             'conversation_topic' => null, 'sentiment_history' => [], 'user_intent' => 'general',
             'mentioned_products' => [], 'mentioned_articles' => [], 'conversation_depth' => 0,
-            'last_active' => time()
+            'last_active' => time(), 'request_count' => 0, 'request_window_start' => time()
         ];
+    }
+
+    // TC-04 FIX: Rate limiting with configurable parameters
+    $rateLimit = 10; // Max requests per time window (increased from implicit 3)
+    $rateLimitWindow = 60; // Time window in seconds (1 minute)
+
+    // Reset counter if time window has passed
+    if (time() - $_SESSION['chat_context']['request_window_start'] > $rateLimitWindow) {
+        $_SESSION['chat_context']['request_count'] = 0;
+        $_SESSION['chat_context']['request_window_start'] = time();
+    }
+
+    // Check rate limit
+    $_SESSION['chat_context']['request_count']++;
+    if ($_SESSION['chat_context']['request_count'] > $rateLimit) {
+        $remainingTime = $rateLimitWindow - (time() - $_SESSION['chat_context']['request_window_start']);
+        $reply = "Překročen limit požadavků ($rateLimit dotazů za minutu). Zkuste to prosím za $remainingTime sekund.";
+        $suggestions = ["Počkat a zkusit znovu", "Kontaktovat podporu"];
+        $response = ['reply' => $reply, 'suggestions' => $suggestions];
+        header('Content-Type: application/json');
+        echo json_encode($response, JSON_UNESCAPED_UNICODE);
+        exit();
     }
 
     $sentiment = analyzeSentiment($userMessage);
@@ -756,9 +841,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($reply === null) {
         $relevantContext = findRelevantContext($userMessage, $articles, $glossary, $products);
         $knowledgeBase = buildKnowledgeBase($articles, $glossary, $products, $relevantContext, $learnedData);
-        
+
         // OPRAVA TC-02 (Jazyk): Předání $language do funkce
-        $reply = getSmartAnswer($userMessage, $knowledgeBase, $conversationHistory, $image, $sentiment, $userIntent, $language);
+        // TC-01 FIX: Pass extended tokens flag for long inputs
+        $reply = getSmartAnswer($userMessage, $knowledgeBase, $conversationHistory, $image, $sentiment, $userIntent, $language, $useExtendedTokens ?? false);
         saveInteractionForLearning($userMessage, $reply, $relevantContext);
     }
 
@@ -1183,7 +1269,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         let isRecording = false;
         let recognition = null;
         let lastBotMessage = "";
+        let lastBotLanguage = "cs-CZ"; // TC-06/TC-08 FIX: Track language for TTS
         let inactivityTimer;
+        let isSpeaking = false; // TC-08 FIX: Track if TTS is currently speaking
+
+        // TC-06 FIX: Simple language detection for TTS
+        function detectMessageLanguage(text) {
+            // Simple detection: if text contains common English words and no Czech diacritics
+            const englishPatterns = /\b(the|is|are|what|how|can|you|your|this|that|with|from)\b/i;
+            const czechDiacritics = /[áčďéěíňóřšťúůýž]/i;
+
+            if (!czechDiacritics.test(text) && englishPatterns.test(text)) {
+                return 'en-US';
+            }
+            return 'cs-CZ';
+        }
 
         // Funkce pro použití návrhu
         function useSuggestion(element) {
@@ -1233,25 +1333,52 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             resetInactivityTimer();
         });
 
-        // Voice recognition
+        // TC-09 FIX: Improved voice recognition with iOS detection
+        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+        const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+
         if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
             const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-            recognition = new SpeechRecognition();
-            recognition.lang = 'cs-CZ';
-            recognition.continuous = false;
 
-            recognition.onresult = (event) => {
-                const transcript = event.results[0][0].transcript;
-                userInput.value = transcript;
-                isRecording = false;
-                voiceBtn.classList.remove('active');
-                resetInactivityTimer();
-            };
+            try {
+                recognition = new SpeechRecognition();
+                recognition.lang = 'cs-CZ';
+                recognition.continuous = false;
+                recognition.interimResults = false;
 
-            recognition.onerror = () => {
-                isRecording = false;
-                voiceBtn.classList.remove('active');
-            };
+                recognition.onresult = (event) => {
+                    const transcript = event.results[0][0].transcript;
+                    userInput.value = transcript;
+                    isRecording = false;
+                    voiceBtn.classList.remove('active');
+                    resetInactivityTimer();
+                };
+
+                recognition.onerror = (event) => {
+                    console.error('Speech recognition error:', event.error);
+                    isRecording = false;
+                    voiceBtn.classList.remove('active');
+
+                    // TC-09 FIX: Better error messages for iOS
+                    if (isIOS) {
+                        alert('Hlasové ovládání má na iOS omezené možnosti. Zkuste použít textový vstup nebo aktualizujte iOS na nejnovější verzi.');
+                    } else {
+                        alert('Chyba hlasového ovládání: ' + event.error);
+                    }
+                };
+
+                recognition.onend = () => {
+                    isRecording = false;
+                    voiceBtn.classList.remove('active');
+                };
+
+            } catch (e) {
+                console.error('Failed to initialize speech recognition:', e);
+                recognition = null;
+                if (isIOS) {
+                    voiceBtn.title = 'Hlasové ovládání není dostupné na iOS';
+                }
+            }
         } else {
             voiceBtn.style.display = 'none';
         }
@@ -1280,23 +1407,56 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             resetInactivityTimer();
         });
 
+        // TC-07 FIX: Improved image upload with validation
         imageUpload.addEventListener('change', (e) => {
             const file = e.target.files[0];
-            if (file) {
-                const reader = new FileReader();
-                reader.onload = (event) => {
-                    uploadedImage = event.target.result.split(',')[1];
+            if (!file) return;
+
+            // TC-07 FIX: Validate file type
+            const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
+            if (!validTypes.includes(file.type)) {
+                alert('Nepodporovaný formát obrázku. Použijte JPG, PNG, GIF nebo WebP.');
+                e.target.value = '';
+                return;
+            }
+
+            // TC-07 FIX: Validate file size (max 5MB)
+            const maxSize = 5 * 1024 * 1024; // 5MB
+            if (file.size > maxSize) {
+                alert('Obrázek je příliš velký. Maximální velikost je 5MB.');
+                e.target.value = '';
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                try {
+                    const base64Data = event.target.result.split(',')[1];
+                    if (!base64Data) {
+                        throw new Error('Nepodařilo se načíst obrázek');
+                    }
+                    uploadedImage = base64Data;
                     imageBtn.classList.add('active');
                     if (userInput.value.trim() === '') {
                         userInput.value = 'Analyzuj tento obrázek';
                     }
-                };
-                reader.readAsDataURL(file);
-            }
+                } catch (error) {
+                    console.error('Image loading error:', error);
+                    alert('Nepodařilo se načíst obrázek. Zkuste jiný soubor.');
+                    e.target.value = '';
+                }
+            };
+
+            reader.onerror = () => {
+                alert('Chyba při čtení souboru. Zkuste to prosím znovu.');
+                e.target.value = '';
+            };
+
+            reader.readAsDataURL(file);
             resetInactivityTimer();
         });
 
-        // Text-to-speech
+        // TC-08 FIX: Improved Text-to-speech with stop functionality and language detection
         speakerBtn.addEventListener('click', () => {
             if (!lastBotMessage) {
                 alert('Zatím není žádná odpověď k přečtení.');
@@ -1304,15 +1464,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
             if ('speechSynthesis' in window) {
+                // TC-08 FIX: If already speaking, stop it (prevents infinite loop)
+                if (isSpeaking || window.speechSynthesis.speaking) {
+                    window.speechSynthesis.cancel();
+                    speakerBtn.classList.remove('active');
+                    isSpeaking = false;
+                    return;
+                }
+
+                // TC-06 FIX: Detect language for proper pronunciation
                 const utterance = new SpeechSynthesisUtterance(lastBotMessage);
-                utterance.lang = 'cs-CZ';
+                utterance.lang = lastBotLanguage; // Use detected language
                 utterance.rate = 0.9;
 
                 utterance.onstart = () => {
                     speakerBtn.classList.add('active');
+                    isSpeaking = true;
                 };
+
                 utterance.onend = () => {
                     speakerBtn.classList.remove('active');
+                    isSpeaking = false;
+                };
+
+                utterance.onerror = (event) => {
+                    console.error('Speech synthesis error:', event);
+                    speakerBtn.classList.remove('active');
+                    isSpeaking = false;
+                    // TC-08 FIX: Ensure cleanup on error
+                    window.speechSynthesis.cancel();
                 };
 
                 window.speechSynthesis.speak(utterance);
@@ -1378,6 +1558,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 
                 lastBotMessage = data.reply.replace(/<br>/g, "\n").replace(/<\/?[^>]+(>|$)/g, "");
+                // TC-06 FIX: Detect language for TTS
+                lastBotLanguage = detectMessageLanguage(lastBotMessage);
                 addBotMessage(data.reply, data.suggestions);
             } catch (error) {
                 console.error('Error sending/receiving message:', error);
@@ -1423,9 +1605,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             bubble.className = 'message-bubble';
 
             let processedText = text.replace(/\n/g, '<br>');
+
+            // TC-03 FIX: Convert markdown links to HTML
             processedText = processedText.replace(
                 /\[(.*?)\]\((.*?)\)/g,
                 '<a href="$2" target="_blank" style="color: #2563eb; text-decoration: none;">$1</a>'
+            );
+
+            // TC-03 FIX: Also convert plain URLs to clickable links
+            processedText = processedText.replace(
+                /(?<!href="|href='|src="|src=')(https?:\/\/[^\s<]+)/g,
+                '<a href="$1" target="_blank" style="color: #2563eb; text-decoration: none;">$1</a>'
             );
 
             if (text.includes('*(Odpověď založená na předchozích interakcích)*')) {
